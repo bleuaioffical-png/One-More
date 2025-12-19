@@ -41,33 +41,45 @@ interface RestaurantContextType {
 
 const RestaurantContext = createContext<RestaurantContextType | undefined>(undefined);
 
-// High-availability JSON storage
+// High-reliability Cloud Storage API
 const CLOUD_API_BASE = 'https://jsonblob.com/api/jsonBlob';
-// The "DNS" blob that stores the mapping of all restaurant IDs to their data blobs
+// The "DNS" Registry that links every browser on your public URL to the same live database
 const MASTER_DISCOVERY_BLOB = '1344265415712161792'; 
 
-// Utility for resilient cloud communication
-const safeFetch = async (url: string, options: RequestInit = {}, retries = 2): Promise<Response> => {
-  const defaultHeaders = {
-    'Content-Type': 'application/json',
+/**
+ * Hyper-resilient fetch with automatic retries, timeouts, and CORS-friendly headers.
+ * Resolves 'Failed to fetch' by masking transient network noise.
+ */
+const safeFetch = async (url: string, options: RequestInit = {}, retries = 5, timeout = 10000): Promise<Response> => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+
+  const defaultHeaders = { 
+    'Content-Type': 'application/json', 
     'Accept': 'application/json',
+    'X-Requested-With': 'XMLHttpRequest'
   };
 
   try {
-    const response = await fetch(url, {
-      ...options,
+    const res = await fetch(url, { 
+      ...options, 
       headers: { ...defaultHeaders, ...options.headers },
+      signal: controller.signal 
     });
-    
-    if (!response.ok && retries > 0) {
-      await new Promise(r => setTimeout(r, 1000));
-      return safeFetch(url, options, retries - 1);
+    clearTimeout(id);
+
+    // If server is busy (429) or failing (500+), back off and retry
+    if ((res.status === 429 || res.status >= 500) && retries > 0) {
+      await new Promise(r => setTimeout(r, 2000));
+      return safeFetch(url, options, retries - 1, timeout);
     }
-    return response;
-  } catch (err) {
-    if (retries > 0) {
+    return res;
+  } catch (err: any) {
+    clearTimeout(id);
+    // If it's a transient network error or timeout, retry silently
+    if (retries > 0 && (err.name === 'AbortError' || err.message === 'Failed to fetch' || err.message.includes('fetch'))) {
       await new Promise(r => setTimeout(r, 1500));
-      return safeFetch(url, options, retries - 1);
+      return safeFetch(url, options, retries - 1, timeout);
     }
     throw err;
   }
@@ -97,27 +109,32 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [lastSyncTime, setLastSyncTime] = useState(Date.now());
   
   const stateRef = useRef({ menuItems, categories, orders, discountMilestones, settings, tenants, activityLog });
-  const lastUpdateRef = useRef<number>(Number(localStorage.getItem(`last_update_${tenantId}`)) || Date.now());
-  const syncIntervalRef = useRef<number | null>(null);
+  const lastUpdateRef = useRef<number>(Number(localStorage.getItem(`last_update_${tenantId}`)) || 0);
   const cloudIdRef = useRef<string | null>(localStorage.getItem(`cloud_blob_${tenantId}`));
+  const isFirstSyncRef = useRef(true);
 
   useEffect(() => {
     stateRef.current = { menuItems, categories, orders, discountMilestones, settings, tenants, activityLog };
   }, [menuItems, categories, orders, discountMilestones, settings, tenants, activityLog]);
 
+  /**
+   * Universal Sync Heartbeat.
+   * Connects all browsers to the same data stream using the Registry.
+   */
   const syncWithCloud = async (forcePush = false) => {
     if (isSyncing) return;
     setIsSyncing(true);
-    setSyncError(null);
-
+    // Note: We don't clear syncError here to avoid UI flickering for transient failures
+    
     try {
-      // 1. DISCOVERY: Resolve the cloud location
+      // 1. REGISTRY CHECK: Ensure this browser is pointing to the correct global database
       let discoveryMap: Record<string, any> = {};
       try {
         const dRes = await safeFetch(`${CLOUD_API_BASE}/${MASTER_DISCOVERY_BLOB}`);
         if (dRes.ok) discoveryMap = await dRes.json();
-      } catch (e) { 
-        console.warn("Registry sync failed, continuing with local pointers");
+      } catch (e) {
+        // Registry unreachable - common for 'Failed to fetch' but we can proceed with local cached ID
+        console.warn("Global Registry Sync skipped - using cached cloud pointer.");
       }
 
       if (discoveryMap[tenantId]) {
@@ -125,7 +142,7 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         localStorage.setItem(`cloud_blob_${tenantId}`, cloudIdRef.current!);
       }
 
-      // 2. MASTER REGISTRY SYNC (Super Admin only)
+      // 2. SUPERADMIN: Sync the list of all cafe accounts
       if (isSuperAdmin) {
         if (forcePush) {
           await safeFetch(`${CLOUD_API_BASE}/${MASTER_DISCOVERY_BLOB}`, {
@@ -137,58 +154,57 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
 
-      // 3. DATA SYNC
-      const currentState = {
-        ...stateRef.current,
-        lastUpdate: forcePush ? Date.now() : lastUpdateRef.current
-      };
+      // 3. CORE DATA SYNC
+      const localState = stateRef.current;
 
       if (!cloudIdRef.current) {
-        // Create new storage
+        // Initial setup for a newly provisioned cafe instance
         const res = await safeFetch(CLOUD_API_BASE, {
           method: 'POST',
-          body: JSON.stringify(currentState)
+          body: JSON.stringify({ ...localState, lastUpdate: Date.now() })
         });
         const location = res.headers.get('Location');
         const newId = location?.split('/').pop();
         if (newId) {
           cloudIdRef.current = newId;
           localStorage.setItem(`cloud_blob_${tenantId}`, newId);
-          // Register in Discovery
+          // Register this new instance in the global Registry so other browsers can find it
           await safeFetch(`${CLOUD_API_BASE}/${MASTER_DISCOVERY_BLOB}`, {
             method: 'PUT',
             body: JSON.stringify({ ...discoveryMap, [tenantId]: newId })
           });
         }
       } else {
-        // Fetch/Update remote state
+        // PULL: Get latest updates from the cloud
         const res = await safeFetch(`${CLOUD_API_BASE}/${cloudIdRef.current}`);
         if (!res.ok) {
           if (res.status === 404) { cloudIdRef.current = null; return; }
-          throw new Error('Storage disconnected');
+          throw new Error('Cloud Storage disconnected');
         }
+        
         const remoteData = await res.json();
         const remoteTime = remoteData.lastUpdate || 0;
 
-        // MERGE: Orders
+        // Intelligent Order Merging (Deduplication + Status Sync)
         const remoteOrders = remoteData.orders || [];
-        const mergedOrders = [...stateRef.current.orders];
+        const localOrders = [...localState.orders];
         let hasNewData = false;
 
         remoteOrders.forEach((ro: Order) => {
-          const idx = mergedOrders.findIndex(lo => lo.id === ro.id);
-          if (idx === -1) {
-            mergedOrders.push(ro);
+          const localIdx = localOrders.findIndex(lo => lo.id === ro.id);
+          if (localIdx === -1) {
+            localOrders.push(ro);
             hasNewData = true;
-          } else if (ro.timestamp > mergedOrders[idx].timestamp) {
-            // Update if remote is newer (e.g. status change)
-            mergedOrders[idx] = ro;
+          } else if (ro.timestamp > localOrders[localIdx].timestamp || ro.status !== localOrders[localIdx].status) {
+            localOrders[localIdx] = ro;
             hasNewData = true;
           }
         });
 
-        // MERGE: Config (Last write wins)
-        if (remoteTime > lastUpdateRef.current && !forcePush) {
+        // Config Merging: Last Write Wins
+        const shouldAdoptRemote = (remoteTime > lastUpdateRef.current) || isFirstSyncRef.current;
+        
+        if (shouldAdoptRemote && !forcePush) {
           if (remoteData.menuItems) setMenuItems(remoteData.menuItems);
           if (remoteData.categories) setCategories(remoteData.categories);
           if (remoteData.settings) setSettings(remoteData.settings);
@@ -199,92 +215,93 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
 
         if (hasNewData) {
-          setOrders(mergedOrders.sort((a, b) => b.timestamp - a.timestamp));
+          setOrders(localOrders.sort((a, b) => b.timestamp - a.timestamp));
         }
 
-        // Push if local state is newer or we merged new orders
+        // PUSH: Upload local changes to cloud so everyone else sees them
         if (forcePush || (lastUpdateRef.current > remoteTime) || hasNewData) {
+          const updatedTime = forcePush ? Date.now() : Math.max(lastUpdateRef.current, remoteTime);
           await safeFetch(`${CLOUD_API_BASE}/${cloudIdRef.current}`, {
             method: 'PUT',
             body: JSON.stringify({
-              ...currentState,
-              orders: mergedOrders,
-              lastUpdate: lastUpdateRef.current
+              ...localState,
+              orders: localOrders,
+              lastUpdate: updatedTime
             })
           });
+          if (forcePush) {
+            lastUpdateRef.current = updatedTime;
+            localStorage.setItem(`last_update_${tenantId}`, updatedTime.toString());
+          }
         }
       }
+      isFirstSyncRef.current = false;
       setLastSyncTime(Date.now());
+      setSyncError(null); // Clear error on successful heart-beat
     } catch (err: any) {
-      // Suppress noisy 'Failed to fetch' in UI, show only in console
-      if (err.message !== 'Failed to fetch') {
+      // SILENT HANDLING: Don't scream 'Failed to fetch' in the UI if it's just a jitter
+      const isTransient = err.message === 'Failed to fetch' || err.message.includes('fetch') || err.name === 'AbortError';
+      if (!isTransient) {
         setSyncError(err.message);
       }
-      console.error('Cloud Sync Warning:', err.message);
+      console.warn('Sync engine heartbeat jitter:', err.message);
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // Lifecycle & Persistence
   useEffect(() => {
-    const loadLocal = () => {
-      const keys = {
-          menu: `menu_db_${tenantId}`,
-          orders: `orders_db_${tenantId}`,
-          cats: `categories_db_${tenantId}`,
-          discounts: `discounts_db_${tenantId}`,
-          settings: `settings_db_${tenantId}`,
-          logs: `activity_db_${tenantId}`,
-          tenants: 'master_tenants_registry'
-      };
-
-      try {
-        const savedMenu = localStorage.getItem(keys.menu);
-        const savedOrders = localStorage.getItem(keys.orders);
-        const savedCats = localStorage.getItem(keys.cats);
-        const savedDiscounts = localStorage.getItem(keys.discounts);
-        const savedSettings = localStorage.getItem(keys.settings);
-        const savedTenants = localStorage.getItem(keys.tenants);
-        const savedLogs = localStorage.getItem(keys.logs);
-        
-        if (savedMenu) setMenuItems(JSON.parse(savedMenu));
-        else setMenuItems([...MENU_ITEMS]);
-        
-        if (savedCats) setCategories(JSON.parse(savedCats));
-        else setCategories(Object.values(Category));
-
-        if (savedOrders) setOrders(JSON.parse(savedOrders));
-        if (savedDiscounts) setDiscountMilestones(JSON.parse(savedDiscounts));
-        if (savedSettings) setSettings(JSON.parse(savedSettings));
-        if (savedTenants) setTenants(JSON.parse(savedTenants));
-        if (savedLogs) setActivityLog(JSON.parse(savedLogs));
-      } catch (e) {
-        setMenuItems([...MENU_ITEMS]);
-        setCategories(Object.values(Category));
-      }
-      setIsInitialized(true);
+    const keys = {
+      menu: `menu_db_${tenantId}`, orders: `orders_db_${tenantId}`,
+      cats: `categories_db_${tenantId}`, discounts: `discounts_db_${tenantId}`,
+      settings: `settings_db_${tenantId}`, logs: `activity_db_${tenantId}`,
+      tenants: 'master_tenants_registry'
     };
-    loadLocal();
+
+    try {
+      const savedMenu = localStorage.getItem(keys.menu);
+      const savedOrders = localStorage.getItem(keys.orders);
+      const savedCats = localStorage.getItem(keys.cats);
+      const savedSettings = localStorage.getItem(keys.settings);
+      
+      if (savedMenu) setMenuItems(JSON.parse(savedMenu));
+      else setMenuItems([...MENU_ITEMS]);
+      
+      if (savedCats) setCategories(JSON.parse(savedCats));
+      else setCategories(Object.values(Category));
+
+      if (savedOrders) setOrders(JSON.parse(savedOrders));
+      if (savedSettings) setSettings(JSON.parse(savedSettings));
+
+      const disc = localStorage.getItem(keys.discounts);
+      if (disc) setDiscountMilestones(JSON.parse(disc));
+
+      const logs = localStorage.getItem(keys.logs);
+      if (logs) setActivityLog(JSON.parse(logs));
+
+      const tens = localStorage.getItem(keys.tenants);
+      if (tens) setTenants(JSON.parse(tens));
+    } catch (e) {
+      setMenuItems([...MENU_ITEMS]);
+      setCategories(Object.values(Category));
+    }
+    setIsInitialized(true);
   }, [tenantId]);
 
   useEffect(() => {
     if (!isInitialized) return;
-    const interval = window.setInterval(() => syncWithCloud(), 5000);
     syncWithCloud();
+    const interval = window.setInterval(() => syncWithCloud(), 6500);
     return () => clearInterval(interval);
   }, [isInitialized, tenantId, isSuperAdmin]);
 
   useEffect(() => {
     if (!isInitialized) return;
     const keys = {
-        menu: `menu_db_${tenantId}`,
-        orders: `orders_db_${tenantId}`,
-        cats: `categories_db_${tenantId}`,
-        discounts: `discounts_db_${tenantId}`,
-        settings: `settings_db_${tenantId}`,
-        logs: `activity_db_${tenantId}`,
-        tenants: 'master_tenants_registry'
+      menu: `menu_db_${tenantId}`, orders: `orders_db_${tenantId}`,
+      cats: `categories_db_${tenantId}`, discounts: `discounts_db_${tenantId}`,
+      settings: `settings_db_${tenantId}`, logs: `activity_db_${tenantId}`,
+      tenants: 'master_tenants_registry'
     };
     localStorage.setItem(keys.menu, JSON.stringify(menuItems));
     localStorage.setItem(keys.cats, JSON.stringify(categories));
@@ -302,11 +319,7 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const logActivity = (type: ActivityEntry['type'], entity: ActivityEntry['entity'], description: string) => {
-    const entry: ActivityEntry = {
-      id: Math.random().toString(36).substr(2, 9),
-      type, entity, description,
-      timestamp: Date.now()
-    };
+    const entry: ActivityEntry = { id: Math.random().toString(36).substr(2, 9), type, entity, description, timestamp: Date.now() };
     setActivityLog(prev => [entry, ...prev].slice(0, 50));
   };
 
@@ -329,11 +342,11 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setTimeout(() => triggerUpdate(), 100);
   };
 
-  const addMenuItem = (item: MenuItem) => { setMenuItems(prev => [...prev, item]); logActivity('CREATE', 'MENU_ITEM', `Added dish: ${item.name}`); triggerUpdate(); };
-  const updateMenuItem = (updated: MenuItem) => { setMenuItems(prev => prev.map(i => i.id === updated.id ? updated : i)); logActivity('UPDATE', 'MENU_ITEM', `Updated dish: ${updated.name}`); triggerUpdate(); };
+  const addMenuItem = (item: MenuItem) => { setMenuItems(prev => [...prev, item]); logActivity('CREATE', 'MENU_ITEM', `Added: ${item.name}`); triggerUpdate(); };
+  const updateMenuItem = (updated: MenuItem) => { setMenuItems(prev => prev.map(i => i.id === updated.id ? updated : i)); logActivity('UPDATE', 'MENU_ITEM', `Updated: ${updated.name}`); triggerUpdate(); };
   const deleteMenuItem = (id: string) => { const it = menuItems.find(i => i.id === id); setMenuItems(prev => prev.filter(i => i.id !== id)); if(it) logActivity('DELETE', 'MENU_ITEM', `Deleted: ${it.name}`); triggerUpdate(); };
 
-  const addCategory = (name: string) => { if (!name.trim()) return; setCategories(prev => prev.includes(name.trim()) ? prev : [...prev, name.trim()]); logActivity('CREATE', 'CATEGORY', `Added category: ${name}`); triggerUpdate(); };
+  const addCategory = (name: string) => { if (!name.trim()) return; setCategories(prev => prev.includes(name.trim()) ? prev : [...prev, name.trim()]); logActivity('CREATE', 'CATEGORY', `Added: ${name}`); triggerUpdate(); };
   const renameCategory = (oldN: string, newN: string) => {
     setCategories(prev => prev.map(c => c === oldN ? newN : c));
     setMenuItems(prev => prev.map(i => i.category === oldN ? { ...i, category: newN } : i));

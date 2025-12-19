@@ -166,7 +166,7 @@ const Storefront: React.FC = () => {
       <div className="fixed top-4 right-6 z-50 flex items-center gap-2 px-3 py-1 bg-white/80 backdrop-blur border border-gray-100 rounded-full shadow-sm">
         <div className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-amber-400 animate-pulse' : 'bg-green-500'}`}></div>
         <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">
-          {isSyncing ? 'Syncing...' : 'Live Connection'}
+          {isSyncing ? 'Syncing...' : 'Connected'}
         </span>
       </div>
 
