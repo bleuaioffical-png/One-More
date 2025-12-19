@@ -49,7 +49,7 @@ const SSE_RELAY_BASE = 'https://ntfy.sh';
 const safeFetch = async (url: string, options: RequestInit = {}, retries = 2): Promise<Response> => {
   if (!navigator.onLine) throw new Error('Network offline');
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
   try {
     const res = await fetch(url, {
       ...options,
@@ -109,71 +109,68 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const lastUpdateRef = useRef<number>(0); 
   const cloudIdRef = useRef<string | null>(null);
   const isFirstSyncRef = useRef(true);
-  
   const isProcessingSync = useRef(false);
-  const syncQueue = useRef<boolean>(false);
 
-  // Local Tab Sync Channel
   const localChannel = useRef<BroadcastChannel | null>(null);
 
   useEffect(() => {
     stateRef.current = { menuItems, categories, orders, discountMilestones, settings, tenants, activityLog };
-  }, [menuItems, categories, orders, discountMilestones, settings, tenants, activityLog]);
+    // Every time the state changes, also backup to local storage as a safety net
+    if (isInitialized) {
+      try { localStorage.setItem(`restaurant_data_v2_${tenantId}`, JSON.stringify(stateRef.current)); } catch(e) {}
+    }
+  }, [menuItems, categories, orders, discountMilestones, settings, tenants, activityLog, isInitialized, tenantId]);
 
   const broadcastPulse = async () => {
     const topic = `sync-live-v2-${tenantId}`;
     try {
       await fetch(`${SSE_RELAY_BASE}/${topic}`, {
         method: 'POST',
-        body: JSON.stringify({ t: Date.now(), origin: 'web', action: 'WAKEUP' }),
-        headers: { 'Title': 'Restaurant Sync', 'Priority': '5' },
+        body: JSON.stringify({ t: Date.now(), action: 'RELOAD' }),
+        headers: { 'Title': 'DB Update', 'Priority': '5' },
         keepalive: true
       });
       localChannel.current?.postMessage({ type: 'SYNC_WAKEUP', time: Date.now() });
-    } catch (e) {
-      console.warn("Real-time pulse failed", e);
-    }
+    } catch (e) {}
   };
 
-  const syncWithCloud = async (forcePush = false) => {
-    if (isProcessingSync.current) {
-      syncQueue.current = true;
-      return;
-    }
+  /**
+   * ATOMIC SYNC
+   * This is the "Heart" of the database updates.
+   */
+  const syncWithCloud = async (forcePush = false, overridingData?: Partial<typeof stateRef.current>) => {
+    if (isProcessingSync.current && !forcePush) return;
 
     isProcessingSync.current = true;
     setIsSyncing(true);
 
     try {
+      // Use overridingData if provided (e.g. from an Admin edit) to ensure the push has the freshest values
+      const dataToPush = { ...stateRef.current, ...overridingData };
+
+      // 1. Resolve Cloud ID
       if (!cloudIdRef.current) {
          try { cloudIdRef.current = localStorage.getItem(`cloud_blob_${tenantId}`); } catch(e) {}
       }
 
+      // 2. Locate or Create the Cloud "File"
       if (!cloudIdRef.current || isSuperAdmin || forcePush) {
-        try {
-          const dRes = await safeFetch(`${CLOUD_API_BASE}/${MASTER_DISCOVERY_BLOB}`);
-          if (dRes.ok) {
-            const map = await dRes.json();
-            if (map[tenantId]) {
-              cloudIdRef.current = map[tenantId];
-              try { localStorage.setItem(`cloud_blob_${tenantId}`, cloudIdRef.current!); } catch(e) {}
-            }
-            if (isSuperAdmin && map.tenants_list) setTenants(map.tenants_list);
-            
-            if (isSuperAdmin && forcePush) {
-              await safeFetch(`${CLOUD_API_BASE}/${MASTER_DISCOVERY_BLOB}`, {
-                method: 'PUT',
-                body: JSON.stringify({ ...map, tenants_list: stateRef.current.tenants, [tenantId]: cloudIdRef.current })
-              });
-            }
+        const dRes = await safeFetch(`${CLOUD_API_BASE}/${MASTER_DISCOVERY_BLOB}`);
+        if (dRes.ok) {
+          const map = await dRes.json();
+          if (map[tenantId]) {
+            cloudIdRef.current = map[tenantId];
+            try { localStorage.setItem(`cloud_blob_${tenantId}`, cloudIdRef.current!); } catch(e) {}
           }
-        } catch (e) {}
+          if (isSuperAdmin && map.tenants_list) setTenants(map.tenants_list);
+        }
       }
 
+      // Create new blob if none exists for this tenant
       if (!cloudIdRef.current) {
         const res = await safeFetch(CLOUD_API_BASE, {
           method: 'POST',
-          body: JSON.stringify({ ...stateRef.current, lastUpdate: Date.now() })
+          body: JSON.stringify({ ...dataToPush, lastUpdate: Date.now() })
         });
         const newId = res.headers.get('Location')?.split('/').pop();
         if (newId) {
@@ -190,52 +187,31 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
 
+      // 3. The actual Database Write/Read
       if (cloudIdRef.current) {
         const res = await safeFetch(`${CLOUD_API_BASE}/${cloudIdRef.current}`);
         if (res.ok) {
           const remote = await res.json();
           const remoteTime = remote.lastUpdate || 0;
           
-          const localOrders = [...stateRef.current.orders];
-          const remoteOrders = remote.orders || [];
-          let needsRemotePush = false;
-          let needsLocalUpdate = false;
-
-          const mergedOrders = [...localOrders];
-          remoteOrders.forEach((ro: Order) => {
-            const localIdx = mergedOrders.findIndex(lo => lo.id === ro.id);
-            if (localIdx === -1) {
-              mergedOrders.push(ro);
-              needsLocalUpdate = true;
-            } else if (ro.timestamp > mergedOrders[localIdx].timestamp) {
-              mergedOrders[localIdx] = ro;
-              needsLocalUpdate = true;
-            } else if (ro.timestamp < mergedOrders[localIdx].timestamp) {
-              needsRemotePush = true;
-            }
-          });
-
-          const finalOrders = mergedOrders.sort((a, b) => b.timestamp - a.timestamp);
-          const remoteConfigIsNewer = (remoteTime > lastUpdateRef.current) || isFirstSyncRef.current;
-          
-          if (remoteConfigIsNewer && !forcePush) {
+          // If we are PUSHING (Admin edit), overwrite the cloud
+          if (forcePush || lastUpdateRef.current > remoteTime) {
+            const syncStamp = Date.now();
+            await safeFetch(`${CLOUD_API_BASE}/${cloudIdRef.current}`, {
+              method: 'PUT',
+              body: JSON.stringify({ ...dataToPush, lastUpdate: syncStamp })
+            });
+            lastUpdateRef.current = syncStamp;
+            await broadcastPulse();
+          } 
+          // If the Cloud is NEWER (or first load), update our local state
+          else if (remoteTime > lastUpdateRef.current || isFirstSyncRef.current) {
             if (remote.menuItems) setMenuItems(remote.menuItems);
             if (remote.categories) setCategories(remote.categories);
             if (remote.settings) setSettings(remote.settings);
             if (remote.discountMilestones) setDiscountMilestones(remote.discountMilestones);
+            if (remote.orders) setOrders(remote.orders);
             lastUpdateRef.current = remoteTime;
-          }
-
-          if (needsLocalUpdate) setOrders(finalOrders);
-
-          if (forcePush || (lastUpdateRef.current > remoteTime) || needsRemotePush || needsLocalUpdate) {
-            const syncStamp = Date.now();
-            await safeFetch(`${CLOUD_API_BASE}/${cloudIdRef.current}`, {
-              method: 'PUT',
-              body: JSON.stringify({ ...stateRef.current, orders: finalOrders, lastUpdate: syncStamp })
-            });
-            lastUpdateRef.current = syncStamp;
-            if (forcePush || needsRemotePush || needsLocalUpdate) await broadcastPulse();
           }
         }
       }
@@ -249,13 +225,10 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } finally {
       isProcessingSync.current = false;
       setIsSyncing(false);
-      if (syncQueue.current) {
-        syncQueue.current = false;
-        syncWithCloud(true);
-      }
     }
   };
 
+  // Connectivity and Background Sync
   useEffect(() => {
     try {
       localChannel.current = new BroadcastChannel(`restaurant_sync_v2_${tenantId}`);
@@ -284,7 +257,7 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     connectSSE();
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') syncWithCloud();
-    }, 20000);
+    }, 30000);
 
     return () => {
       eventSource?.close();
@@ -293,12 +266,14 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, [tenantId]);
 
+  // Bootstrapping
   useEffect(() => {
     const init = async () => {
       try {
         const local = localStorage.getItem(`restaurant_data_v2_${tenantId}`);
         if (local) {
           const data = JSON.parse(local);
+          // Only use hardcoded defaults if local storage is completely empty
           setMenuItems(data.menuItems || MENU_ITEMS);
           setCategories(data.categories || Object.values(Category));
           setSettings(data.settings || INITIAL_SETTINGS);
@@ -314,16 +289,11 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setCategories(Object.values(Category));
       }
       setIsInitialized(true);
-      setTimeout(() => syncWithCloud(), 200);
+      // Immediately try to fetch from cloud to override any stale local data
+      setTimeout(() => syncWithCloud(), 100);
     };
     init();
   }, [tenantId]);
-
-  useEffect(() => {
-    if (isInitialized) {
-      try { localStorage.setItem(`restaurant_data_v2_${tenantId}`, JSON.stringify(stateRef.current)); } catch(e) {}
-    }
-  }, [isInitialized, menuItems, categories, orders, discountMilestones, settings, activityLog, tenantId]);
 
   const login = (password: string) => {
     if (password === 'master99') { setIsSuperAdmin(true); setIsAdmin(true); return 'SUPER'; }
@@ -333,59 +303,60 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const logout = () => { setIsAdmin(false); setIsSuperAdmin(false); };
 
-  const addTenant = (tenant: Omit<TenantAccount, 'createdAt' | 'status'>) => {
-    const newT: TenantAccount = { ...tenant, createdAt: Date.now(), status: 'ACTIVE' };
-    setTenants(prev => [...prev, newT]);
-    syncWithCloud(true);
-  };
-
-  const deleteTenant = (id: string) => {
-    setTenants(prev => prev.filter(t => t.id !== id));
-    syncWithCloud(true);
-  };
-
+  /** 
+   * ADMINISTRATIVE ACTIONS 
+   * These functions now trigger a "Force Push" to the database immediately.
+   */
   const addMenuItem = (item: MenuItem) => {
-    setMenuItems(prev => [...prev, item]);
-    syncWithCloud(true);
+    const nextItems = [...stateRef.current.menuItems, item];
+    setMenuItems(nextItems);
+    syncWithCloud(true, { menuItems: nextItems });
   };
 
   const updateMenuItem = (item: MenuItem) => {
-    setMenuItems(prev => prev.map(i => i.id === item.id ? item : i));
-    syncWithCloud(true);
+    const nextItems = stateRef.current.menuItems.map(i => i.id === item.id ? item : i);
+    setMenuItems(nextItems);
+    syncWithCloud(true, { menuItems: nextItems });
   };
 
   const deleteMenuItem = (id: string) => {
-    setMenuItems(prev => prev.filter(i => i.id !== id));
-    syncWithCloud(true);
+    const nextItems = stateRef.current.menuItems.filter(i => i.id !== id);
+    setMenuItems(nextItems);
+    syncWithCloud(true, { menuItems: nextItems });
   };
 
   const addCategory = (name: string) => {
     if (!categories.includes(name)) {
-      setCategories(prev => [...prev, name]);
-      syncWithCloud(true);
+      const nextCats = [...stateRef.current.categories, name];
+      setCategories(nextCats);
+      syncWithCloud(true, { categories: nextCats });
     }
   };
 
   const removeCategory = (name: string) => {
-    setCategories(prev => prev.filter(c => c !== name));
-    setMenuItems(prev => prev.filter(i => i.category !== name));
-    syncWithCloud(true);
+    const nextCats = stateRef.current.categories.filter(c => c !== name);
+    const nextItems = stateRef.current.menuItems.filter(i => i.category !== name);
+    setCategories(nextCats);
+    setMenuItems(nextItems);
+    syncWithCloud(true, { categories: nextCats, menuItems: nextItems });
   };
 
   const renameCategory = (oldName: string, newName: string) => {
-    setCategories(prev => prev.map(c => c === oldName ? newName : c));
-    setMenuItems(prev => prev.map(i => i.category === oldName ? { ...i, category: newName } : i));
-    syncWithCloud(true);
-  };
-
-  const updateDiscountMilestones = (milestones: DiscountMilestone[]) => {
-    setDiscountMilestones(milestones);
-    syncWithCloud(true);
+    const nextCats = stateRef.current.categories.map(c => c === oldName ? newName : c);
+    const nextItems = stateRef.current.menuItems.map(i => i.category === oldName ? { ...i, category: newName } : i);
+    setCategories(nextCats);
+    setMenuItems(nextItems);
+    syncWithCloud(true, { categories: nextCats, menuItems: nextItems });
   };
 
   const updateSettings = (newSettings: RestaurantSettings) => {
     setSettings(newSettings);
-    syncWithCloud(true);
+    syncWithCloud(true, { settings: newSettings });
+  };
+
+  const updateDiscountMilestones = (milestones: DiscountMilestone[]) => {
+    setDiscountMilestones(milestones);
+    syncWithCloud(true, { discountMilestones: milestones });
   };
 
   const placeOrder = (order: Omit<Order, 'id' | 'status' | 'timestamp'>) => {
@@ -395,32 +366,53 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       status: 'PENDING', 
       timestamp: Date.now() 
     };
-    setOrders(prev => [newOrder, ...prev]);
+    const nextOrders = [newOrder, ...stateRef.current.orders];
+    setOrders(nextOrders);
     setLastPlacedOrder(newOrder);
-    syncWithCloud(true);
+    syncWithCloud(true, { orders: nextOrders });
   };
 
   const updateOrderStatus = (orderId: string, status: OrderStatus) => {
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status, timestamp: Date.now() } : o));
-    syncWithCloud(true);
+    const nextOrders = stateRef.current.orders.map(o => o.id === orderId ? { ...o, status, timestamp: Date.now() } : o);
+    setOrders(nextOrders);
+    syncWithCloud(true, { orders: nextOrders });
   };
 
   const toggleOrderTakeaway = (orderId: string) => {
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isTakeaway: !o.isTakeaway, timestamp: Date.now() } : o));
-    syncWithCloud(true);
+    const nextOrders = stateRef.current.orders.map(o => o.id === orderId ? { ...o, isTakeaway: !o.isTakeaway, timestamp: Date.now() } : o);
+    setOrders(nextOrders);
+    syncWithCloud(true, { orders: nextOrders });
   };
 
-  const clearHistory = () => { setActivityLog([]); syncWithCloud(true); };
+  const addTenant = (tenant: Omit<TenantAccount, 'createdAt' | 'status'>) => {
+    const newT: TenantAccount = { ...tenant, createdAt: Date.now(), status: 'ACTIVE' };
+    const nextTenants = [...stateRef.current.tenants, newT];
+    setTenants(nextTenants);
+    syncWithCloud(true, { tenants: nextTenants });
+  };
+
+  const deleteTenant = (id: string) => {
+    const nextTenants = stateRef.current.tenants.filter(t => t.id !== id);
+    setTenants(nextTenants);
+    syncWithCloud(true, { tenants: nextTenants });
+  };
+
+  const clearHistory = () => {
+    setActivityLog([]);
+    syncWithCloud(true, { activityLog: [] });
+  };
+
   const importBusinessData = (data: string) => {
     try {
       const parsed = JSON.parse(data);
       if (parsed.menuItems) setMenuItems(parsed.menuItems);
       if (parsed.categories) setCategories(parsed.categories);
       if (parsed.settings) setSettings(parsed.settings);
-      syncWithCloud(true);
+      syncWithCloud(true, parsed);
       return true;
     } catch (e) { return false; }
   };
+
   const exportBusinessData = () => JSON.stringify(stateRef.current);
 
   const value = {

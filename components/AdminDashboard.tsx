@@ -122,7 +122,6 @@ export const AdminDashboard: React.FC = () => {
     setTimeout(() => setCopyFeedback(false), 2000);
   };
 
-  // Real-time Order Monitoring & Chime
   useEffect(() => {
     const currentMap: Record<string, OrderStatus> = {};
     const newUpdates = new Set<string>();
@@ -288,7 +287,6 @@ export const AdminDashboard: React.FC = () => {
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     updateSettings(settingsForm);
-    alert('Settings updated!');
   };
 
   const filteredOrders = useMemo(() => {
@@ -310,7 +308,7 @@ export const AdminDashboard: React.FC = () => {
 
   const handleAddMilestone = () => setPromoMilestones(prev => [...prev, { threshold: 0, percentage: 0 }]);
   const handleRemoveMilestone = (idx: number) => setPromoMilestones(prev => prev.filter((_, i) => i !== idx));
-  const handleSaveMilestones = () => { updateDiscountMilestones(promoMilestones); alert('Promotions updated!'); };
+  const handleSaveMilestones = () => { updateDiscountMilestones(promoMilestones); };
 
   const handlePrint = (order: Order) => {
     setOrderToPrint(order);
@@ -325,7 +323,6 @@ export const AdminDashboard: React.FC = () => {
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
   const COLORS = ['#111827', '#374151', '#4B5563', '#6B7280', '#9CA3AF', '#D1D5DB', '#E5E7EB'];
 
-  // Customization Helpers
   const handleAddOption = () => {
     const newOption: CustomizationOption = {
       id: Math.random().toString(36).substr(2, 9),
@@ -351,12 +348,12 @@ export const AdminDashboard: React.FC = () => {
                 <div className="w-10 h-10 bg-gray-900 flex items-center justify-center rounded-lg text-white font-black">{getInitials(settings.name)}</div>
                 <div>
                     <h1 className="text-sm font-bold uppercase tracking-widest">{settings.name}</h1>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">ID: {tenantId}</p>
-                      <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-colors ${isLive ? 'bg-green-50 border-green-100' : 'bg-amber-50 border-amber-100'}`}>
-                        <span className={`flex h-1.5 w-1.5 rounded-full ${isLive ? 'bg-green-500' : 'bg-amber-500'} ${isSyncing ? 'animate-ping' : ''}`}></span>
-                        <span className={`text-[7px] font-black uppercase tracking-widest ${isLive ? 'text-green-700' : 'text-amber-700'}`}>
-                          {isLive ? 'Live Connection' : 'Reconnecting...'}
+                      <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-all duration-500 ${isSyncing ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                        <span className={`flex h-1.5 w-1.5 rounded-full ${isSyncing ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></span>
+                        <span className={`text-[8px] font-black uppercase tracking-widest ${isSyncing ? 'text-amber-700' : 'text-green-700'}`}>
+                          {isSyncing ? 'Database Updating...' : 'Database Synchronized'}
                         </span>
                       </div>
                     </div>
@@ -367,17 +364,7 @@ export const AdminDashboard: React.FC = () => {
                 onClick={handleCopyLink}
                 className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${copyFeedback ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-100 text-gray-400 hover:text-gray-900'}`}
               >
-                {copyFeedback ? (
-                  <>
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M5 13l4 4L19 7" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" strokeWidth={2.5} /></svg>
-                    Share Menu
-                  </>
-                )}
+                {copyFeedback ? 'Copied URL!' : 'Share Menu'}
               </button>
               <button onClick={logout} className="px-4 py-2 text-gray-400 hover:text-red-600 font-bold uppercase text-[10px] tracking-widest">Log Out</button>
             </div>
@@ -423,7 +410,7 @@ export const AdminDashboard: React.FC = () => {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                       </svg>
                       <span className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400 group-hover:text-gray-900">
-                        {isSyncing ? 'Syncing...' : 'Fetch Latest'}
+                        Refresh Database
                       </span>
                     </button>
                     <span className="text-[7px] font-bold text-gray-300 uppercase tracking-widest">
@@ -500,11 +487,11 @@ export const AdminDashboard: React.FC = () => {
             <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-soft animate-fadeIn">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
                     <div>
-                      <h3 className="text-xs font-black uppercase tracking-widest text-gray-900">Manage Categories</h3>
-                      <p className="text-[9px] text-gray-400 font-bold uppercase mt-1">Organize your menu structure</p>
+                      <h3 className="text-xs font-black uppercase tracking-widest text-gray-900">Categories</h3>
+                      <p className="text-[9px] text-gray-400 font-bold uppercase mt-1">Changes are instantly applied to database</p>
                     </div>
                     <div className="flex gap-3 w-full sm:max-w-sm">
-                        <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="New category name..." className="flex-1 bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase focus:border-gray-900 transition-all" />
+                        <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="New category..." className="flex-1 bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase focus:border-gray-900 outline-none" />
                         <button onClick={() => { if(newCategoryName.trim()){ addCategory(newCategoryName); setNewCategoryName(''); } }} className="px-6 bg-gray-900 text-white font-black uppercase text-[9px] tracking-widest rounded-xl">Add</button>
                     </div>
                 </div>
@@ -513,7 +500,7 @@ export const AdminDashboard: React.FC = () => {
                         <div key={cat} className="bg-gray-50 border border-gray-100 pl-5 pr-3 py-3 rounded-[1.5rem] flex items-center gap-6 group cursor-default">
                             <span className="text-[10px] font-black uppercase tracking-widest text-gray-900">{cat}</span>
                             <div className="flex items-center gap-2">
-                                <button onClick={() => setDeletingCategory(cat)} className="text-gray-200 hover:text-red-500">×</button>
+                                <button onClick={() => setDeletingCategory(cat)} className="text-gray-200 hover:text-red-500 text-lg font-bold">×</button>
                             </div>
                         </div>
                     ))}
@@ -523,23 +510,25 @@ export const AdminDashboard: React.FC = () => {
             <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-soft animate-fadeIn">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-10">
                     <div>
-                      <h3 className="text-xs font-black uppercase tracking-widest text-gray-900">Manage Dishes</h3>
+                      <h3 className="text-xs font-black uppercase tracking-widest text-gray-900">Dishes & Pricing</h3>
+                      <p className="text-[9px] text-gray-400 font-bold uppercase mt-1">Live Menu Management</p>
                     </div>
                     <div className="flex gap-4 w-full sm:w-auto">
-                        <input type="text" placeholder="Search dishes..." value={menuSearchQuery} onChange={(e) => setMenuSearchQuery(e.target.value)} className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-[10px] font-bold uppercase outline-none" />
+                        <input type="text" placeholder="Search..." value={menuSearchQuery} onChange={(e) => setMenuSearchQuery(e.target.value)} className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-[10px] font-bold uppercase outline-none" />
                         <button onClick={handleOpenAddModal} className="px-8 py-3 bg-gray-900 text-white font-black uppercase text-[9px] tracking-[0.2em] rounded-xl whitespace-nowrap">+ New Dish</button>
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {filteredMenuItems.map(item => (
-                        <div key={item.id} className="p-6 bg-gray-50/50 border border-gray-100 rounded-2xl relative">
+                        <div key={item.id} className="p-6 bg-gray-50/50 border border-gray-100 rounded-2xl relative group transition-all hover:bg-white hover:shadow-lg">
                            <div className="flex justify-between items-start mb-4">
-                              <h4 className="text-xs font-black uppercase text-gray-900">{item.name}</h4>
-                              <span className="text-xs font-black text-gray-900">₹{item.price}</span>
+                              <h4 className="text-xs font-black uppercase text-gray-900 group-hover:text-red-700 transition-colors">{item.name}</h4>
+                              <span className="text-sm font-black text-gray-900 tabular-nums">₹{item.price}</span>
                            </div>
-                           <div className="flex justify-end gap-3 mt-6">
-                              <button onClick={() => handleOpenEditModal(item)} className="text-[9px] font-black uppercase text-gray-400 hover:text-gray-900 transition-colors">Edit</button>
-                              <button onClick={() => setItemToDelete(item)} className="text-[9px] font-black uppercase text-red-400 hover:text-red-600 transition-colors">Delete</button>
+                           <p className="text-[10px] text-gray-400 italic mb-4 line-clamp-2">{item.description}</p>
+                           <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-4 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => handleOpenEditModal(item)} className="text-[9px] font-black uppercase text-gray-400 hover:text-gray-900 transition-colors border border-gray-100 px-3 py-1.5 rounded-lg bg-white">Edit</button>
+                              <button onClick={() => setItemToDelete(item)} className="text-[9px] font-black uppercase text-red-300 hover:text-red-600 transition-colors border border-red-50 px-3 py-1.5 rounded-lg bg-white">Delete</button>
                            </div>
                         </div>
                     ))}
@@ -619,31 +608,37 @@ export const AdminDashboard: React.FC = () => {
         {activeTab === 'PROMOTIONS' && (
           <div className="max-w-3xl space-y-8 animate-fadeIn">
              <div className="bg-white border border-gray-100 rounded-[2.5rem] p-10 shadow-soft">
-                <h3 className="text-sm font-black uppercase tracking-widest mb-10">Discount Milestones</h3>
+                <div className="mb-10">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-gray-900">Discount Milestones</h3>
+                  <p className="text-[9px] text-gray-400 font-bold uppercase mt-1">Configure automated cart discounts</p>
+                </div>
                 <div className="space-y-4 mb-8">
                   {promoMilestones.map((m, idx) => (
                     <div key={idx} className="flex items-center gap-4 p-5 bg-gray-50 rounded-3xl border border-gray-100">
                        <div className="flex-1 space-y-2">
-                          <label className="text-[8px] font-black uppercase text-gray-400">Threshold (₹)</label>
+                          <label className="text-[8px] font-black uppercase text-gray-400">Order Above (₹)</label>
                           <input type="number" value={m.threshold} onChange={(e) => { const newM = [...promoMilestones]; newM[idx].threshold = Number(e.target.value); setPromoMilestones(newM); }} className="w-full bg-white border border-gray-100 rounded-xl px-4 py-3 text-[11px] font-bold outline-none" />
                        </div>
                        <div className="flex-1 space-y-2">
                           <label className="text-[8px] font-black uppercase text-gray-400">Discount %</label>
                           <input type="number" value={m.percentage} onChange={(e) => { const newM = [...promoMilestones]; newM[idx].percentage = Number(e.target.value); setPromoMilestones(newM); }} className="w-full bg-white border border-gray-100 rounded-xl px-4 py-3 text-[11px] font-bold outline-none" />
                        </div>
-                       <button onClick={() => handleRemoveMilestone(idx)} className="mt-6 text-red-300 hover:text-red-500">×</button>
+                       <button onClick={() => handleRemoveMilestone(idx)} className="mt-6 text-red-200 hover:text-red-500 font-bold text-xl">×</button>
                     </div>
                   ))}
-                  <button onClick={handleAddMilestone} className="w-full py-4 border-2 border-dashed border-gray-100 rounded-3xl text-[10px] font-black uppercase tracking-widest text-gray-300 hover:border-gray-900">+ Add Milestone</button>
+                  <button onClick={handleAddMilestone} className="w-full py-4 border-2 border-dashed border-gray-100 rounded-3xl text-[10px] font-black uppercase tracking-widest text-gray-300 hover:border-gray-900 transition-all">+ Add Discount Rule</button>
                 </div>
-                <button onClick={handleSaveMilestones} className="w-full py-5 bg-gray-900 text-white text-[11px] font-black uppercase tracking-[0.4em] rounded-3xl">Save Promotions</button>
+                <button onClick={handleSaveMilestones} className="w-full py-5 bg-gray-900 text-white text-[11px] font-black uppercase tracking-[0.4em] rounded-3xl shadow-lg active:scale-95 transition-all">Apply Rules to Database</button>
              </div>
           </div>
         )}
 
         {activeTab === 'SETTINGS' && (
           <div className="max-w-4xl animate-fadeIn bg-white border border-gray-100 rounded-3xl p-10 shadow-soft">
-              <h3 className="text-xs font-black uppercase tracking-widest mb-10">Business Configuration</h3>
+              <div className="mb-10">
+                <h3 className="text-xs font-black uppercase tracking-widest text-gray-900">Business Configuration</h3>
+                <p className="text-[9px] text-gray-400 font-bold uppercase mt-1">Changes here update your Live Restaurant Profile</p>
+              </div>
               <form onSubmit={handleSaveSettings} className="space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-2">
@@ -679,7 +674,7 @@ export const AdminDashboard: React.FC = () => {
                     <input value={settingsForm.upiName || ''} onChange={(e) => setSettingsForm({...settingsForm, upiName: e.target.value})} placeholder="Owner / Shop Name" className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:border-gray-900" />
                   </div>
                 </div>
-                <button type="submit" className="w-full py-4 bg-gray-900 text-white font-black uppercase tracking-[0.3em] rounded-xl shadow-lg">Save Settings</button>
+                <button type="submit" className="w-full py-4 bg-gray-900 text-white font-black uppercase tracking-[0.3em] rounded-xl shadow-lg active:scale-95 transition-all">Update Live Database</button>
               </form>
           </div>
         )}
@@ -688,11 +683,11 @@ export const AdminDashboard: React.FC = () => {
           <div className="max-w-4xl space-y-8 animate-fadeIn">
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-black uppercase tracking-widest text-gray-900">Activity Log</h3>
-              <button onClick={() => { if(window.confirm('Clear all logs?')) clearHistory(); }} className="text-[9px] font-black uppercase text-gray-400 hover:text-red-600">Clear History</button>
+              <button onClick={() => { if(window.confirm('Clear all logs?')) clearHistory(); }} className="text-[9px] font-black uppercase text-gray-400 hover:text-red-600 transition-colors">Wipe History</button>
             </div>
             <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-soft">
               <div className="space-y-6">
-                {activityLog.length === 0 ? <div className="py-20 text-center text-[10px] font-bold uppercase text-gray-300">No logs available</div> : activityLog.map((entry) => (
+                {activityLog.length === 0 ? <div className="py-20 text-center text-[10px] font-bold uppercase text-gray-300 italic tracking-widest">Registry Empty</div> : activityLog.map((entry) => (
                   <div key={entry.id} className="flex gap-6 border-b border-gray-50 pb-4 last:border-0">
                     <div className="w-2 h-2 rounded-full mt-2 shrink-0 bg-gray-900" />
                     <div>
@@ -708,13 +703,12 @@ export const AdminDashboard: React.FC = () => {
         </div>
       </main>
 
-      {/* Bill Preview */}
       {isPreviewOpen && orderToPrint && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
           <div className="bg-white rounded-3xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-white">
               <span className="text-[10px] font-black uppercase tracking-widest">Receipt Preview</span>
-              <button onClick={() => setIsPreviewOpen(false)} className="text-gray-300 hover:text-gray-900 p-1">×</button>
+              <button onClick={() => setIsPreviewOpen(false)} className="text-gray-300 hover:text-gray-900 p-1 text-2xl font-bold">×</button>
             </div>
             <div className="p-8 bg-gray-50 flex-1 overflow-y-auto">
               <div id="printable-invoice" className="bg-white p-6 font-mono text-[10px] text-black shadow-sm">
@@ -752,41 +746,40 @@ export const AdminDashboard: React.FC = () => {
               </div>
             </div>
             <div className="p-6 bg-white border-t border-gray-100 flex gap-3">
-              <button onClick={() => { setIsPreviewOpen(false); handlePrint(orderToPrint); }} className="w-full py-3 bg-gray-900 text-white font-black uppercase text-[10px] rounded-xl">Print Now</button>
+              <button onClick={() => { setIsPreviewOpen(false); handlePrint(orderToPrint); }} className="w-full py-3 bg-gray-900 text-white font-black uppercase text-[10px] rounded-xl shadow-lg active:scale-95 transition-all">Print Receipt</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Item Modal */}
       {isMenuModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/5 backdrop-blur-md">
             <div className="bg-white border border-gray-100 rounded-[2rem] w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
                 <div className="px-8 py-6 border-b border-gray-50 bg-white flex justify-between items-center">
-                   <h3 className="text-[10px] font-black uppercase tracking-[0.2em]">{editingItem ? 'Edit Dish' : 'New Dish'}</h3>
-                   <button onClick={() => setIsMenuModalOpen(false)} className="text-gray-200 hover:text-gray-900 p-1">×</button>
+                   <h3 className="text-[10px] font-black uppercase tracking-[0.2em]">{editingItem ? 'Update Dish Details' : 'Create New Dish'}</h3>
+                   <button onClick={() => setIsMenuModalOpen(false)} className="text-gray-200 hover:text-gray-900 p-1 text-2xl font-bold">×</button>
                 </div>
                 <form onSubmit={handleSaveItem} className="p-8 space-y-8 overflow-y-auto flex-1 bg-white scrollbar-hide">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                         <div className="space-y-6">
                             <div className="space-y-2">
-                                <label className="text-[9px] font-black uppercase text-gray-400">Item Name</label>
-                                <input required value={formState.name} onChange={(e) => setFormState({...formState, name: e.target.value})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-4 text-[11px] font-bold uppercase focus:border-gray-900" />
+                                <label className="text-[9px] font-black uppercase text-gray-400">Dish Name</label>
+                                <input required value={formState.name} onChange={(e) => setFormState({...formState, name: e.target.value})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-4 text-[11px] font-bold uppercase focus:border-gray-900 outline-none" />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <label className="text-[9px] font-black uppercase text-gray-400">Price (₹)</label>
+                                    <label className="text-[9px] font-black uppercase text-gray-400">Database Price (₹)</label>
                                     <input type="number" required value={formState.price === 0 ? '' : formState.price} onChange={(e) => setFormState({...formState, price: Number(e.target.value)})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-4 text-[11px] font-bold outline-none focus:border-gray-900" />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-[9px] font-black uppercase text-gray-400">Category</label>
-                                    <select required value={formState.category} onChange={(e) => setFormState({...formState, category: e.target.value})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-4 text-[11px] font-bold outline-none">
+                                    <label className="text-[9px] font-black uppercase text-gray-400">Category Assignment</label>
+                                    <select required value={formState.category} onChange={(e) => setFormState({...formState, category: e.target.value})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-4 text-[11px] font-bold outline-none cursor-pointer">
                                         {categories.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
                                 </div>
                             </div>
                             <div className="space-y-4">
-                                <label className="text-[9px] font-black uppercase text-gray-400">Dietary Type</label>
+                                <label className="text-[9px] font-black uppercase text-gray-400">Dietary Tagging</label>
                                 <div className="flex gap-2">
                                   <button 
                                     type="button" 
@@ -805,47 +798,52 @@ export const AdminDashboard: React.FC = () => {
                                 </div>
                             </div>
                             <div className="space-y-2">
-                                <label className="text-[9px] font-black uppercase text-gray-400">Description</label>
+                                <label className="text-[9px] font-black uppercase text-gray-400">Dish Description</label>
                                 <textarea value={formState.description} onChange={(e) => setFormState({...formState, description: e.target.value})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-4 text-[11px] font-medium h-24 resize-none outline-none focus:border-gray-900" />
                             </div>
                         </div>
                         <div className="space-y-6">
                             <div className="flex justify-between items-center">
-                                <label className="text-[9px] font-black uppercase text-gray-400">Customization Groups</label>
-                                <button type="button" onClick={handleAddOption} className="text-[8px] font-black uppercase text-gray-900">+ Add Group</button>
+                                <label className="text-[9px] font-black uppercase text-gray-400">Customizations</label>
+                                <button type="button" onClick={handleAddOption} className="text-[8px] font-black uppercase text-gray-900 hover:underline">+ Add Custom Group</button>
                             </div>
                             <div className="space-y-6">
                               {(formState.customizationOptions || []).map((opt) => (
                                 <div key={opt.id} className="p-4 bg-gray-50 border border-gray-100 rounded-2xl space-y-4">
                                   <div className="flex gap-2">
-                                    <input value={opt.title} onChange={(e) => handleUpdateOption(opt.id, { title: e.target.value })} className="flex-1 bg-white border border-transparent rounded-lg px-3 py-2 text-[10px] font-bold uppercase focus:border-gray-900 outline-none" placeholder="TITLE" />
-                                    <button type="button" onClick={() => handleRemoveOption(opt.id)} className="text-red-400">×</button>
+                                    <input value={opt.title} onChange={(e) => handleUpdateOption(opt.id, { title: e.target.value })} className="flex-1 bg-white border border-transparent rounded-lg px-3 py-2 text-[10px] font-bold uppercase focus:border-gray-900 outline-none" placeholder="OPTION TITLE" />
+                                    <button type="button" onClick={() => handleRemoveOption(opt.id)} className="text-red-400 font-bold text-lg px-2">×</button>
                                   </div>
                                   <div className="space-y-2">
                                     {opt.choices.map((choice) => (
                                       <div key={choice.id} className="flex gap-2 items-center">
-                                        <input value={choice.name} onChange={(e) => handleUpdateChoice(opt.id, choice.id, { name: e.target.value })} className="flex-1 bg-white border-transparent rounded-lg px-2 py-1 text-[9px] font-medium outline-none focus:border-gray-200" placeholder="Choice" />
-                                        <input type="number" value={choice.price || 0} onChange={(e) => handleUpdateChoice(opt.id, choice.id, { price: Number(e.target.value) })} className="w-16 bg-white border-transparent rounded-lg px-2 py-1 text-[9px] font-black outline-none focus:border-gray-200" />
-                                        <button type="button" onClick={() => handleRemoveChoice(opt.id, choice.id)} className="text-gray-300">×</button>
+                                        <input value={choice.name} onChange={(e) => handleUpdateChoice(opt.id, choice.id, { name: e.target.value })} className="flex-1 bg-white border-transparent rounded-lg px-2 py-1 text-[9px] font-medium outline-none focus:border-gray-200" placeholder="Variant Name" />
+                                        <div className="flex items-center bg-white rounded-lg px-2">
+                                          <span className="text-[8px] text-gray-300 font-bold mr-1">₹</span>
+                                          <input type="number" value={choice.price || 0} onChange={(e) => handleUpdateChoice(opt.id, choice.id, { price: Number(e.target.value) })} className="w-12 border-none text-[9px] font-black outline-none py-1" />
+                                        </div>
+                                        <button type="button" onClick={() => handleRemoveChoice(opt.id, choice.id)} className="text-gray-300 hover:text-red-500 font-bold px-1">×</button>
                                       </div>
                                     ))}
-                                    <button type="button" onClick={() => handleAddChoice(opt.id)} className="text-[8px] font-black uppercase text-gray-400 hover:text-gray-900">+ Add Choice</button>
+                                    <button type="button" onClick={() => handleAddChoice(opt.id)} className="text-[8px] font-black uppercase text-gray-400 hover:text-gray-900 transition-colors">+ Add Variant</button>
                                   </div>
                                 </div>
                               ))}
+                              {(formState.customizationOptions || []).length === 0 && (
+                                <div className="text-center py-10 border-2 border-dashed border-gray-50 rounded-2xl text-[9px] font-bold text-gray-300 uppercase tracking-widest">No Add-ons Configured</div>
+                              )}
                             </div>
                         </div>
                     </div>
-                    <div className="flex gap-4 pt-8">
-                        <button type="button" onClick={() => setIsMenuModalOpen(false)} className="flex-1 py-4 text-gray-400 font-black uppercase text-[10px]">Cancel</button>
-                        <button type="submit" className="flex-[2] py-4 bg-gray-900 text-white font-black uppercase text-[10px] rounded-xl shadow-lg">Save Item</button>
+                    <div className="flex gap-4 pt-8 border-t border-gray-50">
+                        <button type="button" onClick={() => setIsMenuModalOpen(false)} className="flex-1 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest hover:text-gray-900 transition-colors">Abort</button>
+                        <button type="submit" className="flex-[2] py-4 bg-gray-900 text-white font-black uppercase text-[10px] tracking-[0.3em] rounded-xl shadow-lg active:scale-95 transition-all">Commit to Cloud Database</button>
                     </div>
                 </form>
             </div>
         </div>
       )}
 
-      {/* Item Delete Confirmation */}
       <ConfirmationModal 
         isOpen={!!itemToDelete} 
         onClose={() => setItemToDelete(null)} 
@@ -855,11 +853,10 @@ export const AdminDashboard: React.FC = () => {
             setItemToDelete(null);
           }
         }} 
-        title="Delete Dish" 
-        message={`Are you sure you want to delete "${itemToDelete?.name}"? This action cannot be undone.`} 
+        title="Wipe Dish from DB" 
+        message={`Warning: Deleting "${itemToDelete?.name}" will permanently remove it from the live cloud database.`} 
       />
 
-      {/* Category Delete Confirmation */}
       <ConfirmationModal 
         isOpen={!!deletingCategory} 
         onClose={() => setDeletingCategory(null)} 
@@ -869,8 +866,8 @@ export const AdminDashboard: React.FC = () => {
             setDeletingCategory(null);
           }
         }} 
-        title="Delete Category" 
-        message={`Deleting "${deletingCategory}" will also remove all dishes assigned to this category. Continue?`} 
+        title="Destroy Category" 
+        message={`Warning: Removing "${deletingCategory}" will also erase all associated dishes in the cloud database. Continue?`} 
       />
     </div>
   );
