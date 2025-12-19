@@ -60,6 +60,7 @@ export const AdminDashboard: React.FC = () => {
     activityLog = [],
     settings,
     isSyncing,
+    isLive,
     syncError,
     lastSyncTime,
     syncNow,
@@ -81,6 +82,7 @@ export const AdminDashboard: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<OrderStatus | 'ALL'>('ALL');
   const [orderTypeFilter, setOrderTypeFilter] = useState<'ALL' | 'TAKEAWAY' | 'DINEIN'>('ALL');
   const [analyticsRange, setAnalyticsRange] = useState<TimeRange>('MONTH');
+  const [copyFeedback, setCopyFeedback] = useState(false);
   
   const [isMenuModalOpen, setIsMenuModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
@@ -112,7 +114,15 @@ export const AdminDashboard: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Sync Logic: Watch for remote changes in orders
+  const handleCopyLink = () => {
+    const baseUrl = window.location.origin + window.location.pathname;
+    const fullUrl = `${baseUrl}?id=${tenantId}`;
+    navigator.clipboard.writeText(fullUrl);
+    setCopyFeedback(true);
+    setTimeout(() => setCopyFeedback(false), 2000);
+  };
+
+  // Real-time Order Monitoring & Chime
   useEffect(() => {
     const currentMap: Record<string, OrderStatus> = {};
     const newUpdates = new Set<string>();
@@ -121,7 +131,6 @@ export const AdminDashboard: React.FC = () => {
       currentMap[order.id] = order.status;
       const prevStatus = prevOrdersRef.current[order.id];
       
-      // Highlight if new or status changed remotely
       if (prevStatus === undefined || prevStatus !== order.status) {
         newUpdates.add(order.id);
         
@@ -129,11 +138,11 @@ export const AdminDashboard: React.FC = () => {
            if (!chimeRef.current) {
             chimeRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
           }
-          chimeRef.current.play().catch(e => console.log('Audio blocked', e));
+          chimeRef.current.play().catch(() => {});
 
           if (Notification.permission === "granted") {
-            new Notification(`New Order Placed`, {
-              body: `${order.customerName} ordered ₹${order.total.toFixed(0)} worth of food.`,
+            new Notification(`New Order!`, {
+              body: `${order.customerName} placed an order for ₹${order.total.toFixed(0)}.`,
               icon: 'https://cdn-icons-png.flaticon.com/512/2276/2276931.png'
             });
           }
@@ -182,8 +191,6 @@ export const AdminDashboard: React.FC = () => {
         width: 150,
         color: { dark: '#000000', light: '#ffffff' }
       }).then(url => setQrCodeUrl(url));
-    } else {
-      setQrCodeUrl('');
     }
   }, [isPreviewOpen, orderToPrint, settings]);
 
@@ -259,44 +266,23 @@ export const AdminDashboard: React.FC = () => {
   }, [orders, analyticsRange]);
 
   const handleExportData = () => {
-    const now = new Date();
-    const startTime = new Date();
-    if (analyticsRange === 'TODAY') startTime.setHours(0,0,0,0);
-    else if (analyticsRange === 'WEEK') startTime.setDate(now.getDate() - 7);
-    else if (analyticsRange === 'MONTH') startTime.setDate(now.getDate() - 30);
-    else if (analyticsRange === 'YEAR') startTime.setFullYear(now.getFullYear() - 1);
-
-    const dataToExport = orders.filter(o => o.timestamp >= startTime.getTime());
-    
-    const headers = ['Order ID', 'Date', 'Time', 'Customer', 'Type', 'Items', 'Subtotal', 'Discount', 'Tax', 'Packing', 'Total', 'Status'];
+    const dataToExport = orders.filter(o => o.status !== 'REJECTED');
+    const headers = ['Order ID', 'Date', 'Customer', 'Items', 'Total', 'Status'];
     const rows = dataToExport.map(order => [
       order.id,
-      new Date(order.timestamp).toLocaleDateString(),
-      new Date(order.timestamp).toLocaleTimeString(),
+      new Date(order.timestamp).toLocaleString(),
       order.customerName,
-      order.isTakeaway ? 'Takeaway' : 'Dine-in',
       order.items.map(i => `${i.quantity}x ${i.name}`).join('; '),
-      order.subtotal,
-      order.discount,
-      order.taxAmount,
-      order.packingCharge,
       order.total,
       order.status
     ]);
-
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(field => `"${field}"`).join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Orders_${analyticsRange}_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `Orders_Report.csv`;
     link.click();
-    document.body.removeChild(link);
   };
 
   const handleSaveSettings = (e: React.FormEvent) => {
@@ -336,13 +322,6 @@ export const AdminDashboard: React.FC = () => {
     setIsPreviewOpen(true);
   };
 
-  const handleRenameCategorySubmit = (oldName: string) => {
-    if (tempCategoryName && tempCategoryName.trim() && tempCategoryName.trim() !== oldName) {
-      renameCategory(oldName, tempCategoryName.trim());
-    }
-    setEditingCategory(null);
-  };
-
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
   const COLORS = ['#111827', '#374151', '#4B5563', '#6B7280', '#9CA3AF', '#D1D5DB', '#E5E7EB'];
 
@@ -373,15 +352,35 @@ export const AdminDashboard: React.FC = () => {
                 <div>
                     <h1 className="text-sm font-bold uppercase tracking-widest">{settings.name}</h1>
                     <div className="flex items-center gap-2">
-                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">Manager Dashboard</p>
-                      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-green-50 rounded-full border border-green-100">
-                        <span className={`flex h-1.5 w-1.5 rounded-full ${isSyncing ? 'bg-amber-400' : 'bg-green-500'} animate-pulse`}></span>
-                        <span className="text-[7px] font-black text-green-700 uppercase tracking-widest">Live Connection</span>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">ID: {tenantId}</p>
+                      <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-colors ${isLive ? 'bg-green-50 border-green-100' : 'bg-amber-50 border-amber-100'}`}>
+                        <span className={`flex h-1.5 w-1.5 rounded-full ${isLive ? 'bg-green-500' : 'bg-amber-500'} ${isSyncing ? 'animate-ping' : ''}`}></span>
+                        <span className={`text-[7px] font-black uppercase tracking-widest ${isLive ? 'text-green-700' : 'text-amber-700'}`}>
+                          {isLive ? 'Live Connection' : 'Reconnecting...'}
+                        </span>
                       </div>
                     </div>
                 </div>
             </div>
-            <button onClick={logout} className="px-4 py-2 text-gray-400 hover:text-red-600 font-bold uppercase text-[10px] tracking-widest">Log Out</button>
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={handleCopyLink}
+                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${copyFeedback ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-100 text-gray-400 hover:text-gray-900'}`}
+              >
+                {copyFeedback ? (
+                  <>
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M5 13l4 4L19 7" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" strokeWidth={2.5} /></svg>
+                    Share Menu
+                  </>
+                )}
+              </button>
+              <button onClick={logout} className="px-4 py-2 text-gray-400 hover:text-red-600 font-bold uppercase text-[10px] tracking-widest">Log Out</button>
+            </div>
         </div>
       </header>
 
@@ -411,7 +410,7 @@ export const AdminDashboard: React.FC = () => {
 
                   <div className="flex flex-col items-end gap-2">
                     <button 
-                      onClick={() => syncNow()} 
+                      onClick={() => syncNow(true)} 
                       disabled={isSyncing}
                       className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95 group"
                     >
@@ -432,16 +431,6 @@ export const AdminDashboard: React.FC = () => {
                     </span>
                   </div>
                 </div>
-
-                {syncError && (
-                  <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex justify-between items-center animate-fadeIn">
-                    <div className="flex items-center gap-3">
-                      <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-[9px] font-black text-red-600 uppercase tracking-widest">Connection Error: {syncError}</span>
-                    </div>
-                    <button onClick={() => syncNow()} className="text-[9px] font-black text-red-800 uppercase tracking-widest underline decoration-red-200">Retry Fetch</button>
-                  </div>
-                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {isSyncing && orders.length === 0 ? (
@@ -475,37 +464,12 @@ export const AdminDashboard: React.FC = () => {
                                             <span className="text-gray-400 font-black">₹{item.price * item.quantity}</span>
                                         </div>
                                     ))}
-                                    {order.packingCharge > 0 && (
-                                      <div className="flex justify-between text-[11px] border-b border-gray-50 pb-2">
-                                          <span className="text-gray-400 font-bold uppercase italic">Packing Charge</span>
-                                          <span className="text-gray-400 font-black">₹{order.packingCharge}</span>
-                                      </div>
-                                    )}
                                     <div className="pt-4 flex justify-between items-end">
                                       <span className="text-[9px] font-black text-gray-300 uppercase tracking-widest">{getRelativeTime(order.timestamp)}</span>
                                       <span className="text-lg font-black text-gray-900 tabular-nums">₹{order.total}</span>
                                     </div>
                                 </div>
                                 <div className="space-y-2">
-                                    {order.status === 'PENDING' && (
-                                      <div className="mb-4 bg-gray-50 p-2 rounded-xl border border-gray-100">
-                                        <p className="text-[7px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 px-1">Order Type</p>
-                                        <div className="grid grid-cols-2 gap-2">
-                                          <button 
-                                            onClick={() => order.isTakeaway && toggleOrderTakeaway(order.id)} 
-                                            className={`py-2 text-[8px] font-black uppercase tracking-widest rounded-lg border transition-all ${!order.isTakeaway ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-400 border-gray-100'}`}
-                                          >
-                                            Dine-in
-                                          </button>
-                                          <button 
-                                            onClick={() => !order.isTakeaway && toggleOrderTakeaway(order.id)} 
-                                            className={`py-2 text-[8px] font-black uppercase tracking-widest rounded-lg border transition-all ${order.isTakeaway ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-400 border-gray-100'}`}
-                                          >
-                                            Takeaway
-                                          </button>
-                                        </div>
-                                      </div>
-                                    )}
                                     <div className="flex gap-2">
                                       <button onClick={() => handlePreview(order)} className="flex-1 py-2.5 bg-gray-50 text-gray-600 border border-gray-100 font-black uppercase text-[8px] tracking-[0.2em] rounded-xl">Preview</button>
                                       <button onClick={() => handlePrint(order)} className="flex-1 py-2.5 bg-gray-900 text-white font-black uppercase text-[8px] tracking-[0.2em] rounded-xl">Print</button>
@@ -549,7 +513,6 @@ export const AdminDashboard: React.FC = () => {
                         <div key={cat} className="bg-gray-50 border border-gray-100 pl-5 pr-3 py-3 rounded-[1.5rem] flex items-center gap-6 group cursor-default">
                             <span className="text-[10px] font-black uppercase tracking-widest text-gray-900">{cat}</span>
                             <div className="flex items-center gap-2">
-                                <button onClick={() => { setEditingCategory(cat); setTempCategoryName(cat); }} className="text-gray-300 hover:text-gray-900">✎</button>
                                 <button onClick={() => setDeletingCategory(cat)} className="text-gray-200 hover:text-red-500">×</button>
                             </div>
                         </div>
@@ -708,10 +671,6 @@ export const AdminDashboard: React.FC = () => {
                     <input type="number" step="0.01" value={settingsForm.gstPercentage} onChange={(e) => setSettingsForm({...settingsForm, gstPercentage: Number(e.target.value)})} className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:border-gray-900" />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[9px] font-black uppercase text-gray-400 tracking-widest">Takeaway Packing Charge (₹)</label>
-                    <input type="number" value={settingsForm.packingCharge} onChange={(e) => setSettingsForm({...settingsForm, packingCharge: Number(e.target.value)})} className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:border-gray-900" />
-                  </div>
-                  <div className="space-y-2">
                     <label className="text-[9px] font-black uppercase text-gray-400 tracking-widest">UPI ID (e.g. upi@bank)</label>
                     <input value={settingsForm.upiId || ''} onChange={(e) => setSettingsForm({...settingsForm, upiId: e.target.value})} className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:border-gray-900" />
                   </div>
@@ -762,14 +721,10 @@ export const AdminDashboard: React.FC = () => {
                 <div className="text-center mb-6">
                   <p className="font-black text-sm uppercase tracking-widest">{settings.name}</p>
                   <p className="text-[7px] mt-1 uppercase leading-tight">{settings.address}</p>
-                  <p className="text-[7px] mt-1">CONTACT: {settings.phone}</p>
                 </div>
                 <div className="flex justify-between mb-4 border-b border-dashed pb-2 text-[8px]">
                    <span>ORDER: #{orderToPrint.id.slice(0,6)}</span>
                    <span>{new Date(orderToPrint.timestamp).toLocaleString()}</span>
-                </div>
-                <div className="mb-4">
-                  <span className="text-[8px] font-black uppercase tracking-widest">TYPE: {orderToPrint.isTakeaway ? 'TAKEAWAY' : 'DINE-IN'}</span>
                 </div>
                 <div className="space-y-1.5 mb-4 border-b border-dashed pb-4">
                   {orderToPrint.items.map((item, idx) => (
@@ -782,7 +737,6 @@ export const AdminDashboard: React.FC = () => {
                 <div className="space-y-1 text-right mb-6 border-b border-dashed pb-4">
                   <div className="flex justify-between"><span>SUBTOTAL</span><span>₹{orderToPrint.subtotal}</span></div>
                   {orderToPrint.discount > 0 && <div className="flex justify-between text-red-600"><span>DISCOUNT</span><span>-₹{orderToPrint.discount}</span></div>}
-                  {orderToPrint.packingCharge > 0 && <div className="flex justify-between"><span>PACKING</span><span>₹{orderToPrint.packingCharge}</span></div>}
                   {orderToPrint.taxAmount > 0 && <div className="flex justify-between"><span>TAX ({settings.gstPercentage}%)</span><span>₹{orderToPrint.taxAmount.toFixed(2)}</span></div>}
                 </div>
                 <div className="flex justify-between font-black text-xs border-b border-dashed pb-2 mb-8">
@@ -848,32 +802,11 @@ export const AdminDashboard: React.FC = () => {
                                   >
                                     Non-Veg
                                   </button>
-                                  <button 
-                                    type="button" 
-                                    onClick={() => setFormState({...formState, dietaryTags: ['Veg', 'Non-Veg']})}
-                                    className={`flex-1 py-2.5 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${formState.dietaryTags?.includes('Veg') && formState.dietaryTags?.includes('Non-Veg') ? 'bg-gray-900 border-gray-900 text-white shadow-md' : 'bg-gray-50 border-gray-100 text-gray-400'}`}
-                                  >
-                                    Both
-                                  </button>
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <label className="text-[9px] font-black uppercase text-gray-400">Description</label>
                                 <textarea value={formState.description} onChange={(e) => setFormState({...formState, description: e.target.value})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-4 text-[11px] font-medium h-24 resize-none outline-none focus:border-gray-900" />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[9px] font-black uppercase text-gray-400">Recommended Pairing (Upsell)</label>
-                                <select 
-                                    value={formState.suggestedItemId || ''} 
-                                    onChange={(e) => setFormState({...formState, suggestedItemId: e.target.value})} 
-                                    className="w-full bg-gray-50 border border-gray-100 rounded-xl p-4 text-[11px] font-bold outline-none"
-                                >
-                                    <option value="">Auto-Suggest (Based on Category)</option>
-                                    {menuItems.filter(i => i.id !== editingItem?.id).map(i => (
-                                        <option key={i.id} value={i.id}>{i.name} (₹{i.price})</option>
-                                    ))}
-                                </select>
-                                <p className="text-[8px] text-gray-400 font-bold uppercase tracking-wider mt-1 px-1 italic">This item will be shown as a recommendation on the menu card.</p>
                             </div>
                         </div>
                         <div className="space-y-6">

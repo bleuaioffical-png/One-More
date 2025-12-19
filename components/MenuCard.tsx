@@ -1,5 +1,6 @@
+
 import React, { useMemo, useState } from 'react';
-import { MenuItem, Category } from '../types';
+import { MenuItem, Category, CategoryType } from '../types';
 import { useRestaurant } from '../contexts/RestaurantContext';
 
 interface MenuCardProps {
@@ -39,7 +40,8 @@ export const MenuCard: React.FC<MenuCardProps> = ({
     }
 
     // 2. Automatic fallback logic
-    let targetCategory: Category | null = null;
+    // Using CategoryType instead of Category because Category is an object value
+    let targetCategory: CategoryType | null = null;
     switch (item.category) {
         case Category.MOMO: targetCategory = Category.SOUP; break;
         case Category.PASTA: targetCategory = Category.SIDES_VEG; break;

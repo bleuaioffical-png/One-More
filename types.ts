@@ -1,18 +1,20 @@
 
-export enum Category {
-  MOMO = "Momo",
-  CHEESE_MOMO = "Cheese Momo",
-  PASTA = "Pasta",
-  SIDES_VEG = "Sides (Veg)",
-  SIDES_NON_VEG = "Sides (Non-Veg)",
-  NOODLES = "Noodles",
-  CHOP_SUEY = "Chop Suey",
-  PRAWNS = "Prawns",
-  WINGS = "Wings",
-  RICE = "Rice",
-  SOUP = "Soup",
-  COMBO = "Combo"
-}
+export const Category = {
+  MOMO: "Momo",
+  CHEESE_MOMO: "Cheese Momo",
+  PASTA: "Pasta",
+  SIDES_VEG: "Sides (Veg)",
+  SIDES_NON_VEG: "Sides (Non-Veg)",
+  NOODLES: "Noodles",
+  CHOP_SUEY: "Chop Suey",
+  PRAWNS: "Prawns",
+  WINGS: "Wings",
+  RICE: "Rice",
+  SOUP: "Soup",
+  COMBO: "Combo"
+} as const;
+
+export type CategoryType = typeof Category[keyof typeof Category];
 
 export interface RestaurantSettings {
   name: string;
